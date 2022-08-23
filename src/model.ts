@@ -22,20 +22,23 @@ export async function loadModel(baseUrl: string) {
 }
 
 export async function predict(model: any, labels: any, buffer: Uint8Array): Promise<Prediction[]> {
-  const t = {} as any;
-  t.decoded = tf.node.decodeImage(buffer);
-  t.resized = tf.image.resizeBilinear(t.decoded, [224, 224]);
-  t.expanded = tf.expandDims(t.resized, 0);
+    const logits = tf.tidy(() => {
+      let img = tf.node.decodeImage(image);
+      img = tf.image.resizeBilinear(img, [224,224]);
 
-  t.results = await model.predict(t.expanded);
-  const data = await t.results.data();
+      const offset = tf.scalar(127.5);
+      // Normalize the image from [0, 255] to [-1, 1]
+      const normalized = img.sub(offset).div(offset);
 
-  for (const tensor of Object.keys(t)) tf.dispose(t[tensor]); // deallocate all tensors
+      const batched = normalized.reshape([1, model.inputs[0].shape[1], model.inputs[0].shape[2], model.inputs[0].shape[3]]);
 
-  const results = [];
-  for (let i = 0; i < data.length; i++) {
-    results.push({ score: data[i], label: labels[i] });
-  }
+      return model.predict(batched);
+    });
+    const data = await logits.data();
 
-  return results;
+    const results = [];
+    for (let i = 0; i < data.length; i++) {
+      results.push({ score: data[i], label: labels[i] });
+    }
+    return results;
 }
